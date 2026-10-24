@@ -6,7 +6,8 @@
      node tools/check.js --only robots        just one group (levels, holes, moves, robots or trap)
      node tools/check.js --sabotage nofill    proves the checks can fail (one at a time): nofill (holes never fill), float
                                               (no falling), nobar (falls go through bars), keepgold (stuck robots keep their
-                                              gold), trap (no popping out of a filled hole), restart (R keeps your gold),
+                                              gold), trap (no popping out of a filled hole), nostuck (never says stuck),
+                                              restart (R keeps your gold),
                                               wall (an extra level that can't be cleared) */
 'use strict';
 const fs = require('fs');

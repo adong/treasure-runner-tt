@@ -1,0 +1,4 @@
+[
+ { "label": "prefs", "js": "localStorage.setItem('claudeGames.muted', '1'); localStorage.removeItem('claudeGames.lang'); localStorage.removeItem('treasureRunnerTT.v1'); location.reload(); 'reload'", "wait": 4500 },
+ { "label": "title", "js": "game.hold(true); game.step(4.5); game.step(0.2); JSON.stringify({state: game.info().state})", "wait": 900, "shot": "screenshot" }
+]

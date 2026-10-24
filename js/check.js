@@ -7,9 +7,11 @@
      moves    falling, ladders, bars, walls; → is +1 cell and ← is -1 on every level
      robots   a robot falls into a hole and is stuck, drops its gold on top, can be walked over, climbs out if the hole is
               still open, or pops back in at the top if it fills first; gold is never lost
+     buddy    your brother's row of holes: in front of the nearest robot, never under you, gold, a ladder or a bar, open a
+              while longer than yours; on a brick floor the robot drops in; every level with robots gets some
      trap     random play with robots on every level: nobody inside a wall, no state that lasts forever, a runner who can't
               move is told he's stuck (press R), and R always gives back the very start
-   check({ sabotage }) proves the checks can fail: nofill, float, nobar, keepgold, trap, restart, wall. */
+   check({ sabotage }) proves the checks can fail: nofill, float, nobar, keepgold, trap, nostuck, restart, wall. */
 (function () {
   'use strict';
   const TR = (typeof window !== 'undefined' ? window : globalThis).TR;
@@ -328,6 +330,63 @@
     }
   }
 
+  // ---------------------------------------------------------------- your brother's holes
+
+  function checkBuddy(g, opts) {
+    const sab = opts.sabotage;
+    // a robot coming along a brick floor: he digs in front of it, the holes open, last longer than yours, and it drops in
+    for (const tier of ['easy', 'normal']) {
+      const s = game(['S...............', 'S.1..........R..', '@###############', '@@@@@@@@@@@@@@@@'], { tier, sabotage: sab });
+      const b = s.robots[0], r = s.runners[0];
+      run(s, 0.4);
+      const plan = TR.buddyPlan(s);
+      g.ok(plan.robot === 0 && plan.cells.length === 3, `${tier}: a row of three holes for the robot (${plan.cells.length})`);
+      g.ok(plan.cells.every((c) => (c % s.W) < b.x && (c % s.W) > r.x && ((c / s.W) | 0) === b.y + 1), `${tier}: in the floor between the robot and you`);
+      plan.cells.forEach((c) => TR.digAt(s, c));
+      g.ok(plan.cells.every((c) => s.hole[c] === 1), `${tier}: the bricks start to crumble`);
+      run(s, s.cfg.dig + TICK);
+      g.ok(plan.cells.every((c) => s.hole[c] === 2), `${tier}: and open`);
+      g.ok(plan.cells.every((c) => Math.abs(s.holeT[c] - s.cfg.hole * TR.BUDDY_HOLE) < 0.1), `${tier}: your brother's holes stay open ${TR.BUDDY_HOLE} times as long`);
+      const got = stepUntil(s, [{ dir: 0 }], () => b.how === 'hole', s.cfg.hole * TR.BUDDY_HOLE);
+      g.ok(got && plan.cells.includes(b.y * s.W + b.x), `${tier}: the robot drops into one`);
+      g.ok(r.how !== 'caught', `${tier}: and you weren't tickled`);
+    }
+    // never under you, never under gold, a ladder or a bar; and nothing to do when there are no robots
+    {
+      const s = game(['S...........', 'S.1$H-...R..', '@###########', '@@@@@@@@@@@@'], { sabotage: sab });
+      run(s, 0.3);
+      const plan = TR.buddyPlan(s);
+      for (const c of plan.cells) {
+        const above = s.spec.tiles[c - s.W];
+        g.ok(above === TR.E && !s.gold[c - s.W] && TR.cellOf(s, s.runners[0]) !== c - s.W, `no hole under you, gold, a ladder or a bar (cell ${c % s.W},${(c / s.W) | 0})`);
+      }
+      const n = game(['S.....', 'S.1...', '@#####', '@@@@@@'], { sabotage: sab });
+      g.ok(TR.buddyPlan(n).robot === -1, 'no robots: no holes');
+    }
+    // every level with robots: he finds bricks to dig for the nearest one
+    const st = { levels: 0, withHoles: 0, trappedOrDropped: 0 };
+    for (const lv of TR.LEVELS) {
+      for (const tier of ['easy', 'normal']) {
+        const s = TR.create(TR.parse(lv), { tier, lives: 99, sabotage: sab });
+        if (!s.robots.length) continue;
+        st.levels++;
+        run(s, 1);
+        const plan = TR.buddyPlan(s);
+        if (plan.cells.length) st.withHoles++;
+        g.ok(plan.cells.length >= 1 && plan.cells.length <= 3, `level ${lv.id} ${tier}: holes for the nearest robot (${plan.cells.length})`);
+        g.ok(plan.cells.every((c) => TR.holeOK(s, c % s.W, (c / s.W) | 0)), `level ${lv.id} ${tier}: every hole is a brick he can dig`);
+        plan.cells.forEach((c) => TR.digAt(s, c));
+        let hit = false;
+        for (let t = 0; t < s.cfg.hole * TR.BUDDY_HOLE + s.cfg.dig && !hit; t += TICK) {
+          TR.step(s, TICK, [{ dir: 0 }]);
+          hit = s.robots.some((b) => plan.cells.includes(TR.cellOf(s, b)) && b.how !== 'out');
+        }
+        if (hit) st.trappedOrDropped++;
+      }
+    }
+    g.stats = st;
+  }
+
   // ---------------------------------------------------------------- trap and restart
 
   const snap = (s) => JSON.stringify({
@@ -358,6 +417,8 @@
 
   function checkTrap(g, opts) {
     const rand = rng(opts.seed || 7);
+    const stats = { seconds: 0, immobile: 0, told: 0, caught: 0, pops: 0, restarts: 0, wins: 0 };
+    g.stats = stats;
     const secs = opts.quick ? 12 : 40;
     for (const lv of TR.LEVELS) {
       const spec = TR.parse(lv);
@@ -381,8 +442,14 @@
           });
           TR.step(s, TICK, inp);
           const digs = s.events.filter((e) => e.type === 'dig').map((e) => e.a);
+          for (const e of s.events) {
+            if (e.type === 'caught') stats.caught++;
+            if (e.type === 'pop') stats.pops++;
+          }
           s.events.length = 0;
+          stats.seconds += TICK;
           if (s.won) { // start again and keep going
+            stats.wins++;
             s = TR.restart(s);
             continue;
           }
@@ -398,6 +465,10 @@
             // can't move at all: within a moment the game must say "stuck? press R"
             if (TR.atRest(s, r) && !canAct(s, r)) sn.still += TICK;
             else sn.still = 0;
+            if (sn.still > 1.2 && sn.still <= 1.2 + TICK) {
+              stats.immobile++;
+              if (r.stuck) stats.told++;
+            }
             if (sn.still > 1.2 && !g.ok(r.stuck, `${name}: runner ${i + 1} can't move at ${r.x},${r.y} and isn't told he's stuck\n${TR.draw(s)}`)) bad++;
           });
           for (const b of s.robots) {
@@ -407,6 +478,7 @@
           }
           // now and then: R, and it must be the very start again
           if (rand() < 0.002) {
+            stats.restarts++;
             const n = TR.restart(s);
             if (!g.ok(snap(n) === fresh, `${name}: R at ${t.toFixed(1)} s didn't give back the start`)) bad++;
             if (rand() < 0.5) s = n;
@@ -417,13 +489,36 @@
         g.ok(n.lives === s.lives, `${name}: R keeps your lives`);
       }
     }
+    // the stuck helper, on purpose: shut in a steel box (no move at all), and in a room with the gold out of reach
+    const cases = [
+      ['in a steel box', ['S.....', 'S..$..', '@@@@@@', '@@1@@@', '@@@@@@']],
+      ['shut in a room, gold out of reach', ['S......', 'S..$...', '@@@@@@@', '@.1...@', '@@@@@@@']],
+      ['fell down a pit he can\'t climb out of', ['S.......', 'S1..$...', '@@.@@@@@', '@@.@@@@@', '@@.@@@@@', '@@@@@@@@']],
+    ];
+    for (const [what, rows] of cases) {
+      const s = game(rows, { robots: false, sabotage: opts.sabotage });
+      const r = s.runners[0];
+      if (what.startsWith('fell')) {
+        TR.step(s, 0.3, [{ dir: RIGHT }]);
+        stepUntil(s, [{ dir: 0 }], () => TR.atRest(s, r), 3);
+      }
+      run(s, 1.1);
+      g.ok(r.stuck, `${what}: the game says he's stuck (so "press R" shows)`);
+      const n = TR.restart(s);
+      g.ok(!n.runners[0].stuck && n.runners[0].home === r.home, `${what}: R puts him back at the start`);
+    }
+    {
+      const s = game(['S........', 'S.1....$.', '@@@@@@@@@'], { robots: false, sabotage: opts.sabotage });
+      run(s, 1.1);
+      g.ok(!s.runners[0].stuck, 'with the gold in reach he is not stuck');
+    }
   }
 
   // ---------------------------------------------------------------- all of it
 
   function check(opts = {}) {
     const t0 = Date.now();
-    const order = [['levels', checkLevels], ['holes', checkHoles], ['moves', checkMoves], ['robots', checkRobots], ['trap', checkTrap]];
+    const order = [['levels', checkLevels], ['holes', checkHoles], ['moves', checkMoves], ['robots', checkRobots], ['buddy', checkBuddy], ['trap', checkTrap]];
     const out = { ok: true, groups: {} };
     for (const [name, fn] of order) {
       if (opts.only && opts.only !== name) continue;
@@ -434,6 +529,7 @@
         g.ok(false, `${name} threw: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
       }
       out.groups[name] = { passed: g.passed, failed: g.failed, fails: g.fails };
+      if (g.stats) out.groups[name].stats = g.stats;
       if (g.summary) out.groups[name].levels = g.summary.map((l) => `${l.id}: ${l.moves} moves, ${l.digs} digs, ${l.gold} gold, ${l.robots} robots`).join(' · ');
       if (g.failed) {
         out.ok = false;

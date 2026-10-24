@@ -30,6 +30,7 @@
     normal: { run: 4.8, climb: 4.2, fall: 7.5, robot: 3.0, robotFall: 5.5, hole: 5, stuck: 3, dig: 0.3, catchR: 0.62, lives: 3, respawn: 1.2, caught: 1.7, ready: 1.1, carry: [3, 7], pick: 0.6 },
   };
   const SCORE = { gold: 100, stuck: 50, trap: 200, clear: 1000 };
+  const BUDDY_HOLE = 1.6; // your brother's holes stay open this many times as long as yours
   const TICK = 1 / 60;
 
   // ---------------------------------------------------------------- levels
@@ -104,7 +105,7 @@
     const cfg = Object.assign({}, TIERS[tier]);
     const s = {
       spec, tier, cfg, opts, W: spec.W, H: spec.H, t: 0,
-      hole: new Uint8Array(spec.n), holeT: new Float32Array(spec.n), holes: 0,
+      hole: new Uint8Array(spec.n), holeT: new Float32Array(spec.n), holes: 0, long: new Uint8Array(spec.n),
       gold: spec.gold.slice(), left: spec.total, carried: 0, got: 0, exitOpen: false,
       runners: [], robots: [], events: [], score: 0, lives: opts.lives != null ? opts.lives : cfg.lives,
       won: false, wonBy: -1, over: false, ready: 0, seed: (opts.seed != null ? opts.seed : 20261024) >>> 0, sab: opts.sabotage || null,
@@ -184,13 +185,14 @@
     const c2 = (y + 1) * s.W + x, b = s.spec.tiles[c2];
     if (b === STONE || ladderish(s, b)) return true;
     if (b === BRICK && s.hole[c2] !== 2) return true;
-    return !!robotAt(s, c2, a); // standing on a robot's head
+    return !s.opts.ghost && !!robotAt(s, c2, a); // standing on a robot's head (not on the title screen's ghost robots)
   }
 
   function canEnter(s, x, y, a) {
     if (!passable(s, x, y)) return false;
     const c = y * s.W + x;
     if (a.kind === 'runner') {
+      if (s.opts.ghost) return true;
       const o = robotAt(s, c, null);
       return !(o && o.how === 'hole'); // a stuck robot fills its hole: walk over it, not into it
     }
@@ -271,7 +273,8 @@
       if (s.holeT[c] > 0) { open++; continue; }
       if (s.hole[c] === 1) {
         s.hole[c] = 2;
-        s.holeT[c] = s.cfg.hole;
+        s.holeT[c] = s.cfg.hole * (s.long[c] ? BUDDY_HOLE : 1); // your brother's holes stay open a bit longer
+        s.long[c] = 0;
         open++;
         ev(s, 'open', c);
       } else if (s.sab === 'nofill') {
@@ -339,7 +342,7 @@
     // the cell beside him must be clear: no ladder, bar, wall, gold or anybody in it (an open hole is fine)
     if (!(ta === E || (ta === BRICK && s.hole[above] === 2)) || s.gold[above]) return false;
     for (const o of s.runners) if (o !== r && o.how !== 'caught' && cellOf(s, o) === above) return false;
-    if (robotIn(s, above, null)) return false;
+    if (!s.opts.ghost && robotIn(s, above, null)) return false;
     return true;
   }
 
@@ -511,6 +514,7 @@
   }
 
   function catches(s) {
+    if (s.opts.ghost) return;
     const R = s.cfg.catchR;
     for (const r of s.runners) {
       if (r.how === 'caught') continue;
@@ -530,6 +534,73 @@
         }
       }
     }
+  }
+
+  // ---------------------------------------------------------------- your brother's holes
+  // Called in (1 player), the other brother digs a row of holes in the floor in front of the nearest robot, on the side
+  // it would walk to get you. A hole needs a brick with nothing in the cell above it (no ladder, bar, gold or anybody).
+
+  function holeOK(s, x, y) {
+    if (!inB(s, x, y) || y === 0) return false;
+    const c = y * s.W + x, above = c - s.W;
+    if (s.spec.tiles[c] !== BRICK || s.hole[c] || s.spec.tiles[above] !== E || s.gold[above]) return false;
+    for (const r of s.runners) if (r.how !== 'caught' && (cellOf(s, r) === above || cellOf(s, r) === c)) return false;
+    return !robotIn(s, above, null);
+  }
+
+  function buddyPlan(s, max = 3) {
+    // robots walking about, nearest to a runner first
+    const cand = [];
+    for (const b of s.robots) {
+      if (b.how === 'out' || b.how === 'hole') continue;
+      let bd = 1e9, near = null;
+      for (const r of s.runners) {
+        if (r.how === 'caught') continue;
+        const d = Math.abs(fx(r) - fx(b)) + Math.abs(fy(r) - fy(b)) * 1.5;
+        if (d < bd) { bd = d; near = r; }
+      }
+      if (near) cand.push({ b, d: bd, near });
+    }
+    if (!cand.length) return { robot: -1, cells: [] };
+    cand.sort((p, q) => p.d - q.d);
+    for (const { b, near } of cand) {
+      // first choice: bricks under the cells it's about to walk through on its way to you, as far as it gets before they fill
+      const route = chase(s, b, near, true) || [];
+      const reach = Math.max(2, Math.floor((s.cfg.hole * BUDDY_HOLE - 1.5) * s.cfg.robot));
+      // holes with something solid under them trap it; ones over thin air just drop it down a floor
+      const traps = [], drops = [];
+      for (const c of route.slice(0, reach)) {
+        const x = c % s.W, y = (c / s.W) | 0;
+        if (cellOf(s, near) === c) break; // not under your own feet
+        if (s.spec.tiles[c] !== E || !holeOK(s, x, y + 1)) continue;
+        const under = y + 2 >= s.H ? STONE : s.spec.tiles[c + 2 * s.W];
+        (under === BRICK || under === STONE ? traps : drops).push(c + s.W);
+      }
+      const cells = (traps.length ? traps : drops).slice(0, max);
+      if (cells.length) return { robot: b.i, cells, dir: 0 };
+      const toward = fx(near) >= fx(b) ? 1 : -1;
+      for (const dir of [toward, -toward]) {
+        // the floor in front of it: up to three bricks within eight cells (a ladder or gold in the way is skipped)
+        const cells = [];
+        for (let k = 1; k <= 8 && cells.length < max; k++) {
+          const x = b.x + dir * k, y = b.y + 1;
+          if (!inB(s, x, b.y) || !passable(s, x, b.y)) break; // a wall: it can't come this way
+          if (holeOK(s, x, y)) cells.push(y * s.W + x);
+        }
+        if (cells.length) return { robot: b.i, cells, dir };
+      }
+    }
+    return { robot: cand[0].b.i, cells: [] };
+  }
+
+  function digAt(s, c) {
+    if (!holeOK(s, c % s.W, (c / s.W) | 0)) return false;
+    s.hole[c] = 1;
+    s.holeT[c] = s.cfg.dig;
+    s.long[c] = 1;
+    s.holes++;
+    ev(s, 'dig', -1, c);
+    return true;
   }
 
   // ---------------------------------------------------------------- robots
@@ -683,10 +754,10 @@
 
   // The robot's next step: breadth-first over where a robot can go, to the runner (or as close as it can get).
   // Robots don't know about holes: an open hole looks like a dip in the floor, so they walk right into it.
-  function chase(s, b, r) {
+  function chase(s, b, r, wantPath) {
     const W = s.W, H = s.H, n = s.spec.n;
     const start = b.y * W + b.x, goal = cellOf(s, r);
-    const first = new Int16Array(n).fill(-1);
+    const first = new Int16Array(n).fill(-1), prev = new Int16Array(n).fill(-1);
     const seen = new Uint8Array(n);
     const q = [start];
     seen[start] = 1;
@@ -711,12 +782,18 @@
         if (seen[k]) continue;
         if (c === start && robotIn(s, k, b)) continue; // another robot is there now
         seen[k] = 1;
+        prev[k] = c;
         first[k] = c === start ? k : first[c];
         q.push(k);
       }
     }
     const to = found >= 0 ? found : best;
     if (to < 0 || to === start || first[to] < 0) return null;
+    if (wantPath) {
+      const path = [];
+      for (let c = to; c >= 0 && c !== start; c = prev[c]) path.push(c);
+      return path.reverse();
+    }
     const f = first[to];
     return [(f % W) - b.x, ((f / W) | 0) - b.y];
   }
@@ -818,6 +895,7 @@
 
   // Can runner r still get some gold, or (exit open) the top? If a robot is carrying gold the answer is yes: it'll drop it.
   function reach(s, r) {
+    if (s.sab === 'nostuck') return true; // sabotage: never say stuck
     if (s.carried > 0) return true;
     const spec = s.spec, touch = new Uint8Array(spec.n);
     let mask = 0;
@@ -894,8 +972,8 @@
   }
 
   Object.assign(TR, {
-    E, BRICK, STONE, LADDER, BAR, EXIT, NONE, LEFT, RIGHT, UP, DOWN, TIERS, SCORE, TICK, ACTS,
-    parse, create, restart, step, solve, sim, reach, reachFrom, draw, cellOf, fx, fy, supported, passable, canDig, staticSup,
-    atRest, ladderish,
+    E, BRICK, STONE, LADDER, BAR, EXIT, NONE, LEFT, RIGHT, UP, DOWN, TIERS, SCORE, TICK, ACTS, BUDDY_HOLE,
+    parse, create, restart, step, solve, sim, reach, reachFrom, draw, cellOf, px: fx, py: fy, supported, passable, canDig, staticSup,
+    atRest, ladderish, buddyPlan, digAt, holeOK,
   });
 })();
