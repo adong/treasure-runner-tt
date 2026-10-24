@@ -128,6 +128,9 @@
       else lo = mid;
     }
     place(hi);
+    // the haze starts behind the level however far back the camera had to go (a tall phone puts it far away)
+    scene.fog.near = hi + 60;
+    scene.fog.far = hi + 220;
     const bx = (m.l + W - m.r) / 2, by = (m.t + H - m.b) / 2;
     cam.setViewOffset(W, H, W / 2 - bx, H / 2 - by, W, H);
     cam.updateMatrixWorld(true);

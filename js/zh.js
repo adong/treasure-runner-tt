@@ -3,7 +3,7 @@
    and the game's own name stay English. */
 (function () {
   const L = Kit.lang;
-  L.keep(['TT Treasure Runner', 'TT', 'Treasure Runner', 'TEDDY', 'TOMMY', 'Teddy', 'Tommy', 'Esc', 'Enter', 'W A S D', 'HI', 'MY LEVEL 1', 'MY LEVEL 2', 'MY LEVEL 3']);
+  L.keep(['TT Treasure Runner', 'TT', 'Treasure Runner', 'TEDDY', 'TOMMY', 'Teddy', 'Tommy', 'Esc', 'Enter', 'W A S D', 'MY LEVEL 1', 'MY LEVEL 2', 'MY LEVEL 3']);
 
   const NAMES = {
     'HELLO GOLD': '你好，金子', 'LADDER LAND': '梯子乐园', 'MONKEY BARS': '爬绳子', 'DIG DOWN': '往下挖洞', 'HELLO ROBOT': '你好，机器人',
@@ -20,7 +20,7 @@
     PLAY: '开始玩', 'Play': '开始玩', 'Play (1)': '开始玩 (1)', 'MAKE A LEVEL': '自己做关卡', 'Make a level': '自己做关卡', 'Make a level (2)': '自己做关卡 (2)',
     '1 PLAYER': '单人', '2 PLAYERS': '双人', 'Players': '几个人玩', 'Who are you?': '你是谁？', 'Level': '难度', 'HI-SCORE': '最高分',
     // the level picker and the panels
-    'MY LEVELS': '我的关卡', 'Home': '主页', 'Levels': '选关', 'Next level': '下一关', 'Play again': '再玩一次', 'PLAY AGAIN': '再玩一次',
+    'MY LEVELS': '我的关卡', 'MY LEVEL': '我的关卡', HI: '最高', 'Home': '主页', 'Levels': '选关', 'Next level': '下一关', 'Play again': '再玩一次', 'PLAY AGAIN': '再玩一次',
     'Keep playing': '继续玩', 'Start again': '重新开始', 'Start again (R)': '重新开始 (R)', 'Back to the level maker': '回去做关卡',
     'OUT OF LIVES!': '没有命了！', 'SCORE': '分数', 'NEW HI-SCORE!': '新的最高分！', 'TEAM TT DID IT!': 'TT 兄弟成功啦！',
     'ALL 30 LEVELS! TREASURE CHAMPION!': '30 关全过！寻宝冠军！',

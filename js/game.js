@@ -18,7 +18,7 @@
   const CFG = {
     scale: 0.46, // the runners in a level of 1 m cells (a boy is about 0.9 m tall)
     buddy: 0.85, // the visiting brother, times his roster buddyScale (he stands beside the level on the grass, so bigger)
-    demoLevel: 8, // the level running behind the title
+    demoLevel: 20, // the level running behind the title (ROBOT PARTY)
     maxLives: 9,
   };
   const LEVELS = TR.LEVELS;
@@ -74,7 +74,7 @@
     el.classList.add('bump');
   }
   const faceImg = (id) => `<img src="${art[id]}" alt="">`;
-  const levelLabel = (lv) => (lv.mine ? `MY LEVEL ${lv.mine}` : `LEVEL ${lv.id}: ${lv.name}`);
+  const levelLabel = (lv) => (lv.mine ? `MY LEVEL ${lv.mine}` : lv.name ? `LEVEL ${lv.id}: ${lv.name}` : 'MY LEVEL');
   const runnerIds = () => (G.players === 2 ? ['teddy', 'tommy'] : [G.who]);
   const runnerActor = (i) => people[runnerIds()[i]];
 
@@ -179,7 +179,7 @@
   // Margins round the level: the HUD on top, the kit's buttons down the left, the touch pads and your brother's button.
   function margins(forDemo) {
     const W = ST.W, H = ST.H, wide = W / H > 1.15;
-    if (forDemo) return wide ? { l: 60, r: W * 0.5, t: 20, b: 20 } : { l: 56, r: 12, t: 40, b: H * 0.58 };
+    if (forDemo) return wide ? { l: 40, r: W * 0.48, t: 10, b: 10 } : { l: 50, r: 6, t: 30, b: H * 0.58 };
     const m = { l: 60, r: 12, t: hudBottom(), b: 12 };
     const boxes = [ui.pad0, ui.pad1, ui.digpad, ui.callBtn].filter((el) => !el.classList.contains('hidden') && !el.classList.contains('gone')).map((el) => el.getBoundingClientRect());
     for (const b of boxes) {

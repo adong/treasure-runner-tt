@@ -736,8 +736,10 @@
       return true;
     }
     b.how = restingHow(s, x, y) === 'hole' ? 'stand' : restingHow(s, x, y);
-    const r = target(s, b);
+    let r = target(s, b);
     if (!r) return false;
+    // the title screen's ghost robots chase a mirror image of the runner, so they roam about without sitting on him
+    if (s.opts.ghost) r = { x: s.W - 1 - r.x, y: r.y, tx: s.W - 1 - r.x, ty: r.y, p: 0, moving: false, how: 'stand' };
     const m = chase(s, b, r);
     if (!m) {
       b.waitT = 0.2;
